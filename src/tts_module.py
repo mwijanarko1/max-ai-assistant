@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Text-to-Speech Module for Max
-Uses Google TTS (gTTS) for high-quality voices
+Uses Google TTS (gTTS) for high-quality voices with interruption support
 """
 
 import os
@@ -10,8 +10,8 @@ import threading
 import time
 import subprocess
 import signal
+import platform
 from gtts import gTTS
-from playsound import playsound
 from typing import Optional, Callable
 
 class TTSModule:
@@ -31,6 +31,8 @@ class TTSModule:
         self.temp_dir = tempfile.mkdtemp()
         self.stt_module = stt_module  # Reference to STT module for pausing
         self.interruption_callback = None  # Callback for interruption events
+        self.speech_thread = None  # Track the speech thread
+        self.os_type = platform.system().lower()
         
         print(f"✅ TTS initialized successfully!")
         print(f"🎤 Language: {voice_lang}")
@@ -56,18 +58,16 @@ class TTSModule:
             self._speak_sync(text)
         else:
             # Speak asynchronously
-            def speak_thread():
-                self.is_speaking = True
-                self._speak_sync(text)
-                self.is_speaking = False
-            
-            thread = threading.Thread(target=speak_thread)
-            thread.daemon = True
-            thread.start()
+            self.speech_thread = threading.Thread(target=self._speak_sync, args=(text,))
+            self.speech_thread.daemon = True
+            self.speech_thread.start()
     
     def _speak_sync(self, text: str):
         """Synchronous speech synthesis"""
         try:
+            # Set speaking flag
+            self.is_speaking = True
+            
             # Pause STT listening if we have a reference
             if self.stt_module:
                 self.stt_module.pause_listening()
@@ -97,20 +97,64 @@ class TTSModule:
             # Make sure to resume STT even if there's an error
             if self.stt_module:
                 self.stt_module.resume_listening()
+        finally:
+            # Always reset speaking flag
+            self.is_speaking = False
     
     def _play_audio_with_interruption(self, audio_file: str):
-        """Play audio with interruption capability"""
+        """Play audio with interruption capability using subprocess"""
         try:
-            # Use playsound for cross-platform compatibility
-            playsound(audio_file)
+            # Use system audio player that can be interrupted
+            if self.os_type == "darwin":  # macOS
+                cmd = ["afplay", audio_file]
+            elif self.os_type == "linux":
+                cmd = ["aplay", audio_file]
+            else:  # Windows
+                cmd = ["start", "/min", "cmd", "/c", f'"{audio_file}"']
+            
+            # Start the audio process
+            self.current_speech_process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
+            )
+            
+            # Wait for the process to complete (unless interrupted)
+            while self.current_speech_process.poll() is None and self.is_speaking:
+                time.sleep(0.1)
+            
+            # If we're no longer speaking, kill the process
+            if not self.is_speaking and self.current_speech_process.poll() is None:
+                self.current_speech_process.terminate()
+                try:
+                    self.current_speech_process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.current_speech_process.kill()
+            
         except Exception as e:
             print(f"Error playing audio: {e}")
+            # Fallback to playsound if subprocess fails
+            try:
+                from playsound import playsound
+                playsound(audio_file)
+            except Exception as fallback_error:
+                print(f"Fallback audio also failed: {fallback_error}")
     
     def stop_speaking(self):
         """Stop current speech"""
         if self.is_speaking:
             self.is_speaking = False
             print("🛑 Speech stopped by user")
+            
+            # Kill the current speech process if it exists
+            if self.current_speech_process and self.current_speech_process.poll() is None:
+                try:
+                    self.current_speech_process.terminate()
+                    self.current_speech_process.wait(timeout=1)
+                except subprocess.TimeoutExpired:
+                    self.current_speech_process.kill()
+                except Exception as e:
+                    print(f"Error stopping speech process: {e}")
             
             # Resume STT listening immediately
             if self.stt_module:

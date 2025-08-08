@@ -8,3 +8,4 @@ requests
 gtts
 playsound
 keyboard
+psutil

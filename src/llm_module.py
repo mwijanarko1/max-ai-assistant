@@ -62,9 +62,13 @@ class LLMModule:
                 return text[: idx + len(end.strip())].strip()
         return text.strip()
     
-    def generate_response(self, user_input: str) -> str:
+    def generate_response(self, user_input: str, memory_context: str = "") -> str:
         """
-        Generate a response using the LLM with <3s target latency
+        Generate a response using the LLM with memory context
+        
+        Args:
+            user_input: User's input
+            memory_context: Session memory context to include in prompt
         """
         try:
             # Temporarily disable history to prevent hallucination
@@ -75,8 +79,21 @@ class LLMModule:
                 {"role": "user", "content": user_input}
             ]
             
-            # Very strict prompt to prevent hallucination
-            prompt = f"""You are Friday. Respond ONLY to this specific input. Do not make up conversations or add fictional exchanges.
+            # Enhanced prompt with memory context
+            if memory_context:
+                prompt = f"""You are Max, an AI assistant with memory of recent conversations.
+
+RECENT CONVERSATION HISTORY:
+{memory_context}
+
+CURRENT USER INPUT: {user_input}
+
+Based on the conversation history above, respond appropriately. If the user refers to "it", "that file", "the document", etc., use the context to understand what they're referring to. Do not make up conversations or add fictional exchanges.
+
+Response:"""
+            else:
+                # Fallback to original prompt if no memory context
+                prompt = f"""You are Max, an AI assistant. Respond ONLY to this specific input. Do not make up conversations or add fictional exchanges.
 
 Input: {user_input}
 Response:"""

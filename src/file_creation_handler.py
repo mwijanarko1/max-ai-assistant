@@ -37,7 +37,14 @@ class FileCreationHandler:
         """Start the file creation process"""
         # Check if user wants to create a file
         if any(phrase in user_input.lower() for phrase in ["create file", "make file", "new file", "create a file", "make a text file"]):
-            return self._initiate_file_creation()
+            # Try to parse the command immediately
+            parsed = self.parse_file_creation_request(user_input)
+            if parsed:
+                # If we can parse it, create the file directly
+                return self.execute_file_creation(parsed["filename"], parsed["file_type"], parsed["directory"])
+            else:
+                # If we can't parse it, ask for more details
+                return self._initiate_file_creation()
         return None
     
     def _initiate_file_creation(self) -> str:
@@ -71,6 +78,31 @@ What would you like to name your file?"""
             r"(\w+)\s+file\s+(\w+)"   # "notes file txt"
         ]
         
+        # New patterns for better parsing
+        new_patterns = [
+            r"make.*text.*file.*called\s+(\w+)",  # "make a text file called apple"
+            r"create.*text.*file.*called\s+(\w+)",  # "create a text file called apple"
+            r"make.*file.*called\s+(\w+)",  # "make a file called apple"
+            r"create.*file.*called\s+(\w+)",  # "create a file called apple"
+            r"make.*(\w+)\s+file",  # "make apple file"
+            r"create.*(\w+)\s+file",  # "create apple file"
+        ]
+        
+        # Try new patterns first (they're more specific)
+        for pattern in new_patterns:
+            match = re.search(pattern, user_input.lower())
+            if match:
+                filename = match.group(1)
+                # Default to txt for text file commands
+                file_type = "txt"
+                
+                return {
+                    "filename": filename,
+                    "file_type": file_type,
+                    "directory": self.desktop_path
+                }
+        
+        # Try original patterns
         for pattern in patterns:
             match = re.search(pattern, user_input.lower())
             if match:
@@ -122,13 +154,14 @@ Please confirm by saying "yes" or "confirm" to create this file, or "no" to canc
             if directory is None:
                 directory = self.desktop_path
             
-            # Security: Only allow operations in desktop or current directory
+            # Security: Allow access to user's home directory and subdirectories
             current_dir = os.getcwd()
             requested_dir = os.path.abspath(directory)
+            home_dir = os.path.expanduser("~")
             
-            # Ensure the requested directory is safe (desktop or current directory)
-            if not (requested_dir.startswith(current_dir) or requested_dir == self.desktop_path):
-                return "Error: Access denied - can only create files in desktop or current directory"
+            # Ensure the requested directory is within the user's home directory
+            if not requested_dir.startswith(home_dir):
+                return "Error: Access denied - can only create files in your home directory and subdirectories"
             
             # Create the full file path
             if not file_type.startswith('.'):
@@ -169,19 +202,20 @@ def test_file_creation():
         "Make a file named project as md",
         "Create file test as py",
         "notes txt file",
-        "todo file"
+        "todo file",
+        "Make a text file called Apple",
+        "Create a text file called Test",
+        "Make a file called MyFile"
     ]
     
     for test_input in test_inputs:
         parsed = handler.parse_file_creation_request(test_input)
         print(f"Input: {test_input}")
         print(f"Parsed: {parsed}")
+        if parsed:
+            result = handler.execute_file_creation(parsed["filename"], parsed["file_type"], parsed["directory"])
+            print(f"Result: {result}")
         print()
-    
-    # Test confirmation message
-    print("Testing confirmation message:")
-    confirm_msg = handler.confirm_file_creation("notes", "txt")
-    print(confirm_msg)
 
 if __name__ == "__main__":
     test_file_creation()

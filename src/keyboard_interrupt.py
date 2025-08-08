@@ -8,6 +8,7 @@ import threading
 import time
 import sys
 import os
+import platform
 from typing import Optional, Callable
 
 try:
@@ -24,6 +25,7 @@ class KeyboardInterrupt:
         self.interruption_callback = None
         self.listener_thread = None
         self.admin_error_shown = False
+        self.os_type = platform.system().lower()
         
         if not KEYBOARD_AVAILABLE:
             print("❌ Keyboard module not available. Using fallback method.")
@@ -39,6 +41,12 @@ class KeyboardInterrupt:
             self._start_fallback_listener()
             return
         
+        # On macOS, keyboard module often has permission issues
+        if self.os_type == "darwin":  # macOS
+            print("🍎 macOS detected. Using fallback method for better compatibility.")
+            self._start_fallback_listener()
+            return
+        
         self.is_listening = True
         print("⌨️  Keyboard interrupt listener started. Press SPACEBAR to interrupt Max.")
         
@@ -49,14 +57,22 @@ class KeyboardInterrupt:
                     print("🚨 Spacebar pressed! Interrupting Max...")
                     self.interruption_callback()
             except OSError as e:
-                if "Error 13" in str(e) or "Must be run as administrator" in str(e):
+                error_msg = str(e)
+                if any(msg in error_msg for msg in ["Error 13", "Must be run as administrator", "Permission denied"]):
                     if not self.admin_error_shown:
-                        print("⚠️  Keyboard module requires admin privileges. Switching to fallback method.")
-                        print("💡 To use spacebar interruption, run with sudo (Linux/macOS) or as administrator (Windows)")
+                        print("⚠️  Keyboard module requires special permissions.")
+                        if self.os_type == "darwin":
+                            print("💡 On macOS, this requires accessibility permissions in System Preferences > Security & Privacy > Privacy > Accessibility")
+                            print("💡 For now, using ENTER key for interruption.")
+                        elif self.os_type == "linux":
+                            print("💡 On Linux, run with sudo for global keyboard capture")
+                        else:
+                            print("💡 On Windows, run as administrator for global keyboard capture")
                         self.admin_error_shown = True
                     self._start_fallback_listener()
                 else:
                     print(f"Error in keyboard listener: {e}")
+                    self._start_fallback_listener()
             except Exception as e:
                 print(f"Error in keyboard listener: {e}")
                 self._start_fallback_listener()
@@ -66,6 +82,9 @@ class KeyboardInterrupt:
     
     def _start_fallback_listener(self):
         """Fallback method using input() for systems without keyboard module or admin privileges"""
+        if self.is_listening:
+            return  # Already listening
+        
         self.is_listening = True
         print("⌨️  Fallback keyboard listener started. Press ENTER to interrupt Max.")
         
@@ -77,6 +96,9 @@ class KeyboardInterrupt:
                         print("🚨 Enter pressed! Interrupting Max...")
                         self.interruption_callback()
                 except KeyboardInterrupt:
+                    break
+                except EOFError:
+                    # Handle case where input() fails (e.g., in non-interactive environments)
                     break
                 except Exception as e:
                     print(f"Error in fallback listener: {e}")

@@ -1,4 +1,4 @@
-# Friday Assistant - Voice AI Assistant
+# Max AI Assistant - Voice AI Assistant
 
 A complete voice-activated AI assistant that listens, thinks, and responds with natural speech. Built with Whisper for speech recognition, Mistral 7B for language processing, and Google TTS for speech synthesis.
 
@@ -17,12 +17,18 @@ pip3 install --upgrade pip setuptools wheel
 pip3 install -r requirements.txt
 ```
 
-### 2. Start Friday
+### 2. Start Max AI Assistant
 ```bash
-python3 test_stt_llm_voice.py
+python3 run_max.py
 ```
 
-Speak naturally and Friday will respond with voice! Say "go to sleep" to exit gracefully.
+Or run directly from the source:
+```bash
+cd src
+python3 max_ai_assistant.py
+```
+
+Speak naturally and Max will respond with voice! Say "go to sleep" to exit gracefully.
 
 ## ✨ Features
 
@@ -42,18 +48,22 @@ User Speech → Whisper STT → Mistral 7B LLM → Google TTS → Voice Response
 
 ### Core Components
 
+- **`max_ai_assistant.py`** - Main AI assistant that integrates all modules
 - **`stt_module.py`** - Speech-to-text using Whisper Base
 - **`llm_module.py`** - Language processing using Mistral 7B via Ollama
 - **`tts_module.py`** - Text-to-speech using Google TTS
-- **`test_stt_llm_voice.py`** - Main voice assistant application
+- **`tools_module.py`** - File system and utility tools
+- **`memory_module.py`** - Conversation memory and context
+- **`simple_interrupt.py`** - Keyboard interruption handling
 
 ## 🎯 How It Works
 
-1. **Listen** - Friday continuously listens for your voice
+1. **Listen** - Max continuously listens for your voice
 2. **Transcribe** - Whisper converts speech to text in real-time
-3. **Process** - Mistral 7B generates intelligent responses
-4. **Speak** - Google TTS converts responses to natural speech
-5. **Pause** - Automatically pauses listening while speaking to prevent feedback
+3. **Process** - Mistral 7B generates intelligent responses with memory context
+4. **Execute Tools** - Can perform file operations, calculations, and system tasks
+5. **Speak** - Google TTS converts responses to natural speech
+6. **Pause** - Automatically pauses listening while speaking to prevent feedback
 
 ## 📊 Performance
 
@@ -96,7 +106,7 @@ pip3 install gtts playsound
 
 ## 🎮 Usage Examples
 
-Try saying these phrases to test Friday:
+Try saying these phrases to test Max:
 
 - "Hello, how are you?"
 - "What's the weather like?"
