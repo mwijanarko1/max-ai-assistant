@@ -1,0 +1,10 @@
+This is a test file for Friday's file operations tool.
+
+It contains some sample text to demonstrate how Friday can read and display file contents.
+
+The file operations tool can:
+- List files in directories
+- Open and read text files
+- Get file information like size and modification date
+
+This is useful for quickly checking file contents without having to manually open them.

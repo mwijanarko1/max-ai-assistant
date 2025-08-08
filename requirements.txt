@@ -1,0 +1,10 @@
+# Core dependencies for Max Assistant
+openai-whisper
+numpy
+torch
+sounddevice
+scipy
+requests
+gtts
+playsound
+keyboard
