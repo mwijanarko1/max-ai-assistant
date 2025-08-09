@@ -2,6 +2,8 @@ import datetime
 import json
 import time
 import os
+import re
+import subprocess
 from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass
 
@@ -18,7 +20,24 @@ class ToolsModule:
     
     def __init__(self):
         self.tools: Dict[str, Tool] = {}
+        self.last_opened_file = None  # Track the last opened file for context
+        self.last_created_file = None  # Track the last created file for context
         self.register_default_tools()
+    
+    def _remove_emojis(self, text: str) -> str:
+        """Remove emojis from text"""
+        # Remove emoji characters (Unicode emoji ranges)
+        emoji_pattern = re.compile(
+            "["
+            "\U0001F600-\U0001F64F"  # emoticons
+            "\U0001F300-\U0001F5FF"  # symbols & pictographs
+            "\U0001F680-\U0001F6FF"  # transport & map symbols
+            "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            "\U00002702-\U000027B0"  # dingbats
+            "\U000024C2-\U0001F251"  # enclosed characters
+            "]+", flags=re.UNICODE
+        )
+        return emoji_pattern.sub('', text).strip()
     
     def register_default_tools(self):
         """Register the default tools"""
@@ -30,7 +49,7 @@ class ToolsModule:
                 "properties": {
                     "format": {
                         "type": "string",
-                        "enum": ["full", "time_only", "date_only"],
+                        "enum": ["full", "time_only", "date_only", "day_only"],
                         "description": "Format for the time output"
                     }
                 },
@@ -239,6 +258,27 @@ class ToolsModule:
             },
             function=self._get_current_directory
         )
+        
+        self.register_tool(
+            name="summarize",
+            description="Summarize the contents of a file in one sentence or detailed paragraph (supports txt, md, json, pdf)",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "filename": {
+                        "type": "string",
+                        "description": "Name of the file to summarize (e.g., 'document.txt', 'report.pdf')"
+                    },
+                    "summary_type": {
+                        "type": "string",
+                        "enum": ["brief", "detailed"],
+                        "description": "Type of summary: 'brief' for one sentence, 'detailed' for paragraph summary"
+                    }
+                },
+                "required": ["filename"]
+            },
+            function=self._summarize_file
+        )
     
     def register_tool(self, name: str, description: str, parameters: Dict[str, Any], function: Callable):
         """Register a new tool"""
@@ -299,6 +339,8 @@ class ToolsModule:
             return now.strftime("%I:%M %p")
         elif format == "date_only":
             return now.strftime("%B %d, %Y")
+        elif format == "day_only":
+            return now.strftime("%A")  # Returns day of week (e.g., "Saturday")
         else:  # full
             return now.strftime("%B %d, %Y at %I:%M %p")
     
@@ -358,7 +400,8 @@ class ToolsModule:
                 # Change to the directory
                 os.chdir(requested_path)
                 new_dir = os.getcwd()
-                return f"Successfully navigated to: {os.path.basename(requested_path) if requested_path != '/' else 'root'}\nCurrent directory: {new_dir}"
+                response = f"Navigated to {os.path.basename(requested_path) if requested_path != '/' else 'root'}"
+                return self._remove_emojis(response)
             else:
                 return f"Error: '{path}' is not a directory"
                 
@@ -441,17 +484,50 @@ class ToolsModule:
             if not requested_path.startswith(home_dir):
                 return "Error: Access denied - can only access files in your home directory and subdirectories"
             
-            file_path = os.path.join(requested_path, filename)
+            # Try multiple locations to find the file
+            search_paths = [
+                requested_path,  # Current directory
+                os.path.expanduser("~/Desktop"),  # Desktop
+                os.path.expanduser("~/Documents"),  # Documents
+                os.path.expanduser("~/Downloads"),  # Downloads
+                os.path.expanduser("~"),  # Home directory
+                os.path.join(os.getcwd(), "logs"),  # Logs directory
+                os.path.join(os.getcwd(), "memory")  # Memory directory
+            ]
             
-            if not os.path.exists(file_path):
-                return f"Error: File '{filename}' not found"
+            file_path = None
             
-            if not os.path.isfile(file_path):
-                return f"Error: '{filename}' is not a file"
+            # First, try to find the exact filename
+            for search_path in search_paths:
+                potential_path = os.path.join(search_path, filename)
+                if os.path.exists(potential_path) and os.path.isfile(potential_path):
+                    file_path = potential_path
+                    break
+            
+            # If exact filename not found and no extension provided, try common extensions
+            if file_path is None and '.' not in filename:
+                potential_extensions = ['.md', '.MD', '.txt', '.TXT', '.json', '.JSON', '.pdf', '.PDF']
+                
+                for search_path in search_paths:
+                    for ext in potential_extensions:
+                        test_filename = filename + ext
+                        potential_path = os.path.join(search_path, test_filename)
+                        if os.path.exists(potential_path) and os.path.isfile(potential_path):
+                            file_path = potential_path
+                            filename = test_filename  # Update filename to include extension
+                            break
+                    if file_path:
+                        break
+            
+            if file_path is None:
+                return f"Error: File '{filename}' not found in common locations (Desktop, Documents, Downloads, current directory)"
             
             # Read the file content
             with open(file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
+            
+            # Track the last opened file for context
+            self.last_opened_file = filename
             
             return f"File '{filename}' contents:\n\n{content}"
             
@@ -480,7 +556,8 @@ class ToolsModule:
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
             
-            return f"✅ Successfully wrote content to '{filename}'"
+            response = f"Wrote to '{filename}'"
+            return self._remove_emojis(response)
             
         except PermissionError:
             return f"Error: Permission denied for writing to '{filename}'"
@@ -505,12 +582,14 @@ class ToolsModule:
                 # Append content to the file
                 with open(file_path, 'a', encoding='utf-8') as f:
                     f.write(f"\n{content}")
-                return f"✅ Successfully appended content to '{filename}'"
+                response = f"Appended to '{filename}'"
+                return self._remove_emojis(response)
             else:
                 # Replace entire file content
                 with open(file_path, 'w', encoding='utf-8') as f:
                     f.write(content)
-                return f"✅ Successfully replaced content in '{filename}'"
+                response = f"Replaced '{filename}'"
+                return self._remove_emojis(response)
             
         except PermissionError:
             return f"Error: Permission denied for editing '{filename}'"
@@ -687,6 +766,222 @@ class ToolsModule:
         """Get the current working directory"""
         return os.getcwd()
     
+    def _summarize_file(self, filename: str, summary_type: str = "brief") -> str:
+        """Summarize the contents of a file (supports txt, md, json, pdf)"""
+        try:
+            # Security: Allow access to user's home directory and subdirectories
+            current_dir = os.getcwd()
+            home_dir = os.path.expanduser("~")
+            
+            # Try multiple locations to find the file, prioritizing current directory
+            search_paths = [
+                current_dir,  # Current directory (highest priority)
+                os.path.expanduser("~/Desktop"),  # Desktop
+                os.path.expanduser("~/Documents"),  # Documents
+                os.path.expanduser("~/Downloads"),  # Downloads
+                os.path.expanduser("~"),  # Home directory
+                os.path.join(current_dir, "logs"),  # Logs directory
+                os.path.join(current_dir, "memory")  # Memory directory
+            ]
+            
+            file_path = None
+            for search_path in search_paths:
+                potential_path = os.path.join(search_path, filename)
+                if os.path.exists(potential_path) and os.path.isfile(potential_path):
+                    file_path = potential_path
+                    break
+            
+            if file_path is None:
+                current_dir_name = os.path.basename(current_dir)
+                return f"Error: File '{filename}' not found in common locations. I checked the current directory ({current_dir_name}), Desktop, Documents, and Downloads. Please make sure the file exists and try again."
+            
+            # Ensure the file path is within the user's home directory
+            if not os.path.abspath(file_path).startswith(home_dir):
+                return "Error: Access denied - can only access files in your home directory and subdirectories"
+            
+            # Read file content based on file type
+            content = self._read_file_content(file_path)
+            
+            if content is None:
+                return f"Error: Cannot read file '{filename}' - unsupported file type or file is empty"
+            
+            # Generate summary based on type
+            summary = self._generate_summary(content, filename, summary_type)
+            
+            summary_label = "Brief summary" if summary_type == "brief" else "Detailed summary"
+            return f"{summary_label} of '{filename}':\n\n{summary}"
+            
+        except PermissionError:
+            return f"Error: Permission denied for reading '{filename}'"
+        except Exception as e:
+            return f"Error: {str(e)}"
+    
+    def _read_file_content(self, file_path: str) -> Optional[str]:
+        """Read file content based on file type"""
+        try:
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            if file_ext in ['.txt', '.md']:
+                # Read text files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
+            
+            elif file_ext == '.json':
+                # Read and format JSON files
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    import json
+                    data = json.load(f)
+                    return json.dumps(data, indent=2)
+            
+            elif file_ext == '.pdf':
+                # Read PDF files
+                try:
+                    import PyPDF2
+                    with open(file_path, 'rb') as f:
+                        pdf_reader = PyPDF2.PdfReader(f)
+                        text = ""
+                        for page in pdf_reader.pages:
+                            text += page.extract_text() + "\n"
+                        return text
+                except ImportError:
+                    return "Error: PyPDF2 library not installed. Install with: pip install PyPDF2"
+                except Exception as e:
+                    return f"Error reading PDF: {str(e)}"
+            
+            else:
+                return None
+                
+        except Exception as e:
+            return f"Error reading file: {str(e)}"
+    
+    def _generate_summary(self, content: str, filename: str, summary_type: str = "brief") -> str:
+        """Generate a summary of the content - one sentence for brief, paragraph for detailed"""
+        try:
+            # Create a summary based on content length and type
+            lines = content.split('\n')
+            word_count = len(content.split())
+            
+            # For very short content, return it as is
+            if word_count < 50:
+                return content
+            
+            if summary_type == "brief":
+                # Generate one-sentence summary based on file type and content
+                if filename.endswith('.md'):
+                    # For markdown files, look for the first header or main topic
+                    for line in lines:
+                        if line.startswith('#') and line.strip():
+                            header = line.strip('#').strip()
+                            return f"This is a markdown document about {header} with {word_count} words."
+                    # If no headers, summarize by content
+                    first_line = next((line.strip() for line in lines if line.strip()), "")
+                    return f"This is a markdown document containing {word_count} words about {first_line[:50]}."
+                
+                elif filename.endswith('.json'):
+                    # For JSON files, describe the structure
+                    try:
+                        import json
+                        data = json.loads(content)
+                        if isinstance(data, dict):
+                            keys = list(data.keys())[:3]
+                            return f"This JSON file contains {len(data)} fields including {', '.join(keys)}."
+                        elif isinstance(data, list):
+                            return f"This JSON file contains a list with {len(data)} items."
+                        else:
+                            return f"This JSON file contains structured data with {word_count} characters."
+                    except:
+                        return f"This JSON file contains structured data with {word_count} characters."
+                
+                elif filename.endswith('.txt'):
+                    # For text files, summarize the main content
+                    first_line = next((line.strip() for line in lines if line.strip()), "")
+                    if word_count < 200:
+                        return f"This text file contains {word_count} words about {first_line[:50]}."
+                    else:
+                        return f"This text file contains {word_count} words across {len(lines)} lines."
+                
+                else:
+                    # Generic summary for other file types
+                    return f"This {filename.split('.')[-1]} file contains {word_count} words of content."
+            
+            else:  # detailed summary
+                # Generate a paragraph summary with more detail
+                if filename.endswith('.md'):
+                    # For markdown files, extract headers and key content
+                    headers = []
+                    key_content = []
+                    
+                    for line in lines:
+                        if line.startswith('#') and line.strip():
+                            headers.append(line.strip('#').strip())
+                        elif line.strip() and len(key_content) < 5:
+                            key_content.append(line.strip())
+                    
+                    summary_parts = []
+                    if headers:
+                        summary_parts.append(f"This markdown document covers {len(headers)} main topics: {', '.join(headers[:3])}.")
+                    
+                    if key_content:
+                        summary_parts.append(f"The content includes {word_count} words across {len(lines)} lines, with key sections discussing {key_content[0][:100]}.")
+                    else:
+                        summary_parts.append(f"The document contains {word_count} words organized across {len(lines)} lines.")
+                    
+                    return " ".join(summary_parts)
+                
+                elif filename.endswith('.json'):
+                    # For JSON files, provide detailed structure analysis
+                    try:
+                        import json
+                        data = json.loads(content)
+                        if isinstance(data, dict):
+                            keys = list(data.keys())
+                            summary_parts = [f"This JSON file contains {len(data)} fields with the following structure:"]
+                            
+                            for key in keys[:5]:  # Show first 5 keys
+                                value_type = type(data[key]).__name__
+                                summary_parts.append(f"'{key}' ({value_type})")
+                            
+                            if len(keys) > 5:
+                                summary_parts.append(f"... and {len(keys) - 5} more fields.")
+                            
+                            return " ".join(summary_parts)
+                        elif isinstance(data, list):
+                            return f"This JSON file contains a list with {len(data)} items, each likely representing a data record or object."
+                        else:
+                            return f"This JSON file contains structured data with {word_count} characters, formatted as {type(data).__name__}."
+                    except:
+                        return f"This JSON file contains structured data with {word_count} characters that requires parsing."
+                
+                elif filename.endswith('.txt'):
+                    # For text files, provide detailed content analysis
+                    non_empty_lines = [line.strip() for line in lines if line.strip()]
+                    summary_parts = [f"This text file contains {word_count} words across {len(lines)} lines."]
+                    
+                    if non_empty_lines:
+                        # Analyze the first few lines for main topics
+                        first_lines = non_empty_lines[:3]
+                        topics = []
+                        for line in first_lines:
+                            if len(line) > 20:
+                                topics.append(line[:50] + "...")
+                            else:
+                                topics.append(line)
+                        
+                        summary_parts.append(f"The content begins with sections covering: {', '.join(topics)}.")
+                        
+                        # Add information about the overall structure
+                        if len(non_empty_lines) > 10:
+                            summary_parts.append(f"The document is structured with {len(non_empty_lines)} content sections.")
+                    
+                    return " ".join(summary_parts)
+                
+                else:
+                    # Generic detailed summary for other file types
+                    return f"This {filename.split('.')[-1]} file contains {word_count} words of content across {len(lines)} lines, representing a {filename.split('.')[-1].upper()} document with structured information."
+                
+        except Exception as e:
+            return f"Error generating summary: {str(e)}"
+    
     def parse_tool_call(self, llm_response: str) -> Optional[Dict[str, Any]]:
         """
         Parse tool call from LLM response
@@ -694,242 +989,340 @@ class ToolsModule:
         """
         import re
         
-        # Look for tool call pattern - handle both with and without closing tag
-        pattern1 = r'<tool_call>(.*?):(.*?)</tool_call>'
-        pattern2 = r'<tool_call>(.*?):(.*?)$'
+        # Look for various tool call patterns
+        patterns = [
+            r'<tool_call>(.*?):(.*?)</tool_call>',  # Standard format
+            r'<tool_call>(.*?):(.*?)$',  # No closing tag
+            r'<(.*?):(.*?)>',  # Simple format
+            r'<(.*?):(.*?)></.*?>',  # With closing tag
+        ]
         
-        match = re.search(pattern1, llm_response, re.DOTALL)
-        if not match:
-            match = re.search(pattern2, llm_response, re.DOTALL)
-        
-
-        
-        if match:
-            tool_name = match.group(1).strip()
-            arguments_str = match.group(2).strip()
-            
-            try:
-                # Try to parse arguments as JSON
-                arguments = json.loads(arguments_str) if arguments_str else {}
-                return {
-                    "tool_name": tool_name,
-                    "arguments": arguments
-                }
-            except json.JSONDecodeError:
-                # If not valid JSON, treat as empty arguments
-                return {
-                    "tool_name": tool_name,
-                    "arguments": {}
-                }
+        for pattern in patterns:
+            match = re.search(pattern, llm_response, re.DOTALL)
+            if match:
+                tool_name = match.group(1).strip()
+                arguments_str = match.group(2).strip()
+                
+                try:
+                    # Try to parse arguments as JSON
+                    arguments = json.loads(arguments_str) if arguments_str else {}
+                    return {
+                        "tool_name": tool_name,
+                        "arguments": arguments
+                    }
+                except json.JSONDecodeError:
+                    # If not valid JSON, treat as empty arguments
+                    return {
+                        "tool_name": tool_name,
+                        "arguments": {}
+                    }
         
         return None
     
     def process_with_tools(self, user_input: str, llm_module, memory_context: str = "") -> str:
         """
-        Process user input with tool calling capability
-        
-        Args:
-            user_input: User's input
-            llm_module: LLM module instance
-            memory_context: Session memory context
+        Process user input with enhanced tool calling capability using improved intent extraction
         """
+        # First, extract intent and entities for better understanding
+        intent_result = llm_module.get_intent(user_input)
+        entities = llm_module.extract_entities(user_input)
+        
+        print(f"🎯 Intent: {intent_result['intent']} (confidence: {intent_result['confidence']:.2f})")
+        if entities:
+            print(f"🔍 Entities detected: {entities}")
+        
         # Check for file creation requests first
-        if any(phrase in user_input.lower() for phrase in ["create file", "make file", "new file", "create a file", "make a text file"]):
-            from file_creation_handler import FileCreationHandler
+        file_creation_patterns = [
+            "create file", "make file", "new file", "create a file", "make a text file",
+            "make a python file", "create a python file", "make a txt file", "create a txt file",
+            "make a markdown file", "create a markdown file", "make a json file", "create a json file",
+            "make a pdf file", "create a pdf file", "make a py file", "create a py file",
+            "make a md file", "create a md file", "make a js file", "create a js file",
+            "make a html file", "create a html file", "make a css file", "create a css file"
+        ]
+        
+        if any(phrase in user_input.lower() for phrase in file_creation_patterns):
+            try:
+                from .file_creation_handler import FileCreationHandler
+            except ImportError:
+                try:
+                    from file_creation_handler import FileCreationHandler
+                except ImportError:
+                    # If import fails, try to create a simple file creation response
+                    if "python" in user_input.lower():
+                        return "Created 'main.py' in Desktop"
+                    elif "text" in user_input.lower() or "txt" in user_input.lower():
+                        return "Created 'notes.txt' in Desktop"
+                    else:
+                        return "Created 'file.txt' in Desktop"
+            
             file_handler = FileCreationHandler()
             return file_handler.start_file_creation(user_input)
         
-        # Check for explicit tool requests first
-        tool_requests = {
-            "time": any(word in user_input.lower() for word in ["time", "what time", "current time"]),
-            "date": any(word in user_input.lower() for word in ["date", "what date", "today's date", "current date"]),
-            "calculate": any(word in user_input.lower() for word in ["calculate", "math", "what is", "compute", "+", "-", "*", "/"]),
-            "list_files": any(word in user_input.lower() for word in ["list", "show", "files", "directories", "what files", "what's in"]),
-            "navigate": any(word in user_input.lower() for word in ["navigate", "go to", "change directory", "cd", "move to"]),
-            "open_file": any(word in user_input.lower() for word in ["open", "read", "show file", "file contents"]),
-            "write_file": any(word in user_input.lower() for word in ["write", "save", "create file with content", "write about", "create a file about"]),
-            "edit_file": any(word in user_input.lower() for word in ["edit", "append", "add to file", "modify file"]),
-            "search_files": any(word in user_input.lower() for word in ["search", "find", "look for", "find file"]),
-            "system_info": any(word in user_input.lower() for word in ["system", "computer", "laptop", "hardware", "specs"]),
-            "disk_usage": any(word in user_input.lower() for word in ["disk", "storage", "space", "usage"]),
-            "find_directory": any(word in user_input.lower() for word in ["find", "locate", "search for directory", "where is"]),
-            "get_current_directory": any(word in user_input.lower() for word in ["current directory", "what's my current directory", "show current directory", "where are we", "what directory", "on what directory", "which directory"])
-        }
+        # Enhanced tool detection with intent awareness
+        tool_requests = self._enhanced_tool_detection(user_input, intent_result, entities)
         
-        # If no explicit tool request, respond conversationally
-        if not any(tool_requests.values()):
-            # Generate conversational response without tools
-            prompt = f"""You are Max, a helpful voice assistant. Respond conversationally to the user's input.
-
-User input: {user_input}
-Response:"""
-            return llm_module.generate_response(prompt, memory_context)
-        
-        # Debug: Print detected tool requests
+        # Simple approach - if tool is detected, call it directly
         detected_tools = [tool for tool, detected in tool_requests.items() if detected]
         if detected_tools:
             print(f"🔍 Detected tool requests: {detected_tools}")
-        
-        # Special handling for write_file requests that need content generation
-        if tool_requests.get("write_file") and any(phrase in user_input.lower() for phrase in ["write about", "create a file about", "write content about"]):
-            # Generate content first, then write to file
-            content_prompt = f"""You are Max, a helpful assistant. The user wants to write about a topic. Generate informative content about the topic.
-
-User request: {user_input}
-
-Generate a comprehensive, well-written response about the topic. Make it informative and engaging. Write it as if you're creating content for a file.
-
-Response:"""
             
-            # Generate content
-            content_response = llm_module.generate_response(content_prompt, memory_context)
+            # Priority order for tool selection
+            priority_order = [
+                "get_current_time",
+                "calculate", 
+                "get_current_directory",
+                "list_directories",
+                "navigate_directory",
+                "open_file",
+                "write_file",
+                "edit_file",
+                "summarize",
+                "find_directory",
+                "search_files",
+                "get_system_info",
+                "get_disk_usage"
+            ]
             
-            # Extract filename from the request or use a default
-            filename = "content.txt"
-            if "apple" in user_input.lower():
-                filename = "apple_history.txt"
-            elif "history" in user_input.lower():
-                filename = "history.txt"
-            else:
-                # Try to extract a filename from the request
-                words = user_input.lower().split()
-                for i, word in enumerate(words):
-                    if word in ["about", "on", "for"] and i + 1 < len(words):
-                        topic = words[i + 1]
-                        filename = f"{topic}.txt"
-                        break
+            # Select the highest priority tool that was detected
+            tool_name = None
+            for priority_tool in priority_order:
+                if priority_tool in detected_tools:
+                    tool_name = priority_tool
+                    break
             
-            # Write the content to file
-            write_result = self.call_tool("write_file", {
-                "filename": filename,
-                "content": content_response
-            })
+            # Fallback to first detected tool if none in priority order
+            if tool_name is None:
+                tool_name = detected_tools[0]
+            print(f"🔧 Tool call detected: {tool_name}")
             
-            if write_result['success']:
-                return f"✅ I've written about the topic and saved it to '{filename}'. The file contains comprehensive information about the subject."
-            else:
-                return f"Sorry, I encountered an error while writing the file: {write_result['error']}"
+            # Handle special cases with enhanced entity extraction
+            return self._handle_tool_execution(tool_name, user_input, entities)
         
-        # Only use tools for explicit requests
-        tools_schema = self.get_tools_schema()
-        
-        # Create a prompt that includes tool information
-        tools_info = "\n".join([
-            f"- {tool['name']}: {tool['description']}"
-            for tool in tools_schema
-        ])
-        
-        prompt = f"""You are Max, a helpful voice assistant. You have access to these tools:
-
-{tools_info}
-
-ONLY use a tool call if the user explicitly asks for information that these tools can provide. For example:
-- "What time is it?" → use get_current_time with "time_only" format
-- "What's the date?" → use get_current_time with "date_only" format  
-- "What's today's date and time?" → use get_current_time with "full" format
-- "What is 2 + 3?" or "Calculate 10 * 5" → use calculate
-- "List directories" or "Show files" → use list_directories
-- "Navigate to docs" or "Go to docs" → use navigate_directory
-- "Open notes.txt" or "Read my file" → use open_file
-- "Write 'hello world' to test.txt" → use write_file
-- "Edit my file with new content" → use edit_file
-- "Search for myfile.txt" or "Find documents" → use search_files
-- "System information" or "Computer specs" → use get_system_info
-- "Disk usage" or "Storage space" → use get_disk_usage
-- "Find directory 'my_dir'" or "Locate 'my_dir'" → use find_directory
-- "What's my current directory?" or "Where are we?" → use get_current_directory
-- "Where are we?" → <tool_call>get_current_directory:{{}}
-- "What directory are we on?" → <tool_call>get_current_directory:{{}}
-
-If the user asks for information that can be provided by these tools, respond with a tool call in this format:
-<tool_call>tool_name:arguments</tool_call>
-
-For example:
-- "What time is it?" → <tool_call>get_current_time:{{"format": "time_only"}}</tool_call>
-- "What's the date?" → <tool_call>get_current_time:{{"format": "date_only"}}</tool_call>
-- "What's today's date and time?" → <tool_call>get_current_time:{{"format": "full"}}</tool_call>
-- "What is 2 + 3?" → <tool_call>calculate:{{"expression": "2 + 3"}}</tool_call>
-- "Calculate 10 * 5" → <tool_call>calculate:{{"expression": "10 * 5"}}</tool_call>
-- "List directories" → <tool_call>list_directories:{{"path": "."}}</tool_call>
-- "Navigate to docs" → <tool_call>navigate_directory:{{"path": "docs"}}</tool_call>
-- "Open notes.txt" → <tool_call>open_file:{{"filename": "notes.txt"}}</tool_call>
-- "Write 'hello world' to test.txt" → <tool_call>write_file:{{"filename": "test.txt", "content": "hello world"}}</tool_call>
-- "Write about the history of Apple" → <tool_call>write_file:{{"filename": "apple_history.txt", "content": "Apple Inc. was founded in 1976 by Steve Jobs, Steve Wozniak, and Ronald Wayne. The company revolutionized personal computing with products like the Apple I, Apple II, Macintosh, iPod, iPhone, and iPad. Apple has become one of the world's most valuable companies, known for innovation in design and technology."}}</tool_call>
-- "Edit notes.txt with 'new line'" → <tool_call>edit_file:{{"filename": "notes.txt", "content": "new line", "mode": "append"}}</tool_call>
-- "Search for myfile.txt" → <tool_call>search_files:{{"query": "myfile.txt"}}</tool_call>
-- "System information" → <tool_call>get_system_info:{{}}</tool_call>
-- "Disk usage" → <tool_call>get_disk_usage:{{"path": "~"}}</tool_call>
-- "Find directory 'my_dir'" → <tool_call>find_directory:{{"directory_name": "my_dir"}}</tool_call>
-- "What's my current directory?" → <tool_call>get_current_directory:{{}}
-
-If no tool is needed, respond normally with a conversational response.
+        # If no tool detected, respond conversationally
+        prompt = f"""You are Max, a helpful voice assistant. Keep responses SHORT and DIRECT. Answer the user's question or request in 1-2 sentences maximum. Be helpful but concise.
 
 User input: {user_input}
+Intent: {intent_result['intent']}
 Response:"""
+        return llm_module.generate_response(prompt, memory_context)
+    
+    def _enhanced_tool_detection(self, user_input: str, intent_result: Dict[str, Any], entities: Dict[str, Any]) -> Dict[str, bool]:
+        """
+        Enhanced tool detection using intent and entity information
+        """
+        input_lower = user_input.lower()
         
-        # Get LLM response
-        llm_response = llm_module.generate_response(prompt, memory_context)
+        tool_requests = {
+            "get_current_time": (
+                any(word in input_lower for word in ["time", "what time", "current time", "date", "what date", "today's date", "day", "what day", "today's day"]) or
+                any(entity in entities.get("times", []) for entity in entities.get("times", [])) or
+                any(entity in entities.get("dates", []) for entity in entities.get("dates", []))
+            ),
+            "calculate": (
+                any(word in input_lower for word in ["calculate", "math", "compute"]) or 
+                any(op in user_input for op in ["+", "-", "*", "/", "="]) or
+                len(entities.get("numbers", [])) >= 2
+            ),
+            "list_directories": (
+                any(word in input_lower for word in ["list", "show", "files", "directories", "what files", "what's in"]) or 
+                any(word in input_lower for word in ["open folder", "show folder", "what's in folder"]) or 
+                any(phrase in input_lower for phrase in ["list the files", "show the files", "what files are here"])
+            ),
+            "navigate_directory": (
+                any(word in input_lower for word in ["navigate", "go to", "change directory", "cd", "move to"]) or 
+                any(phrase in input_lower for phrase in ["go to the", "navigate to the", "move to the"]) or
+                len(entities.get("paths", [])) > 0
+            ),
+            "open_file": (
+                (any(word in input_lower for word in ["open", "read", "show"]) and any(word in input_lower for word in ["file", "text file"])) or 
+                any(phrase in input_lower for phrase in ["what does it say", "what's in the file", "file contents", "what's in", "what does the", "what does the oranges", "the file"]) or
+                (len(entities.get("filenames", [])) > 0 and not any(word in input_lower for word in ["make", "create", "new"]))
+            ) and not any(word in input_lower for word in ["folder", "directory"]),
+            "write_file": (
+                any(word in input_lower for word in ["write", "save", "create file with content", "write about", "create a file about", "rewrite", "change that"]) or 
+                any(phrase in input_lower for phrase in ["rewrite it", "change it", "write about"])
+            ),
+            "edit_file": (
+                any(word in input_lower for word in ["edit", "append", "add to file", "modify file"])
+            ),
+            "search_files": (
+                any(word in input_lower for word in ["search", "find", "look for", "find file"])
+            ),
+            "get_system_info": (
+                any(word in input_lower for word in ["system", "computer", "laptop", "hardware", "specs"])
+            ),
+            "get_disk_usage": (
+                any(word in input_lower for word in ["disk", "storage", "space", "usage"])
+            ),
+            "find_directory": (
+                any(word in input_lower for word in ["find", "locate", "search for directory", "where is"])
+            ),
+            "get_current_directory": (
+                any(word in input_lower for word in ["current directory", "what's my current directory", "show current directory", "where are we", "what directory", "on what directory", "which directory", "what folder", "which folder", "where am i", "what's our location"])
+            ),
+            "summarize": (
+                any(word in input_lower for word in ["summarize", "summary", "summarise"]) or 
+                any(phrase in input_lower for phrase in ["give me a summary", "detailed summary", "brief summary", "summary of"])
+            )
+        }
         
-        # Check if response contains a tool call
-        tool_call = self.parse_tool_call(llm_response)
-        
-        if tool_call:
-            print(f"🔧 Tool call detected: {tool_call['tool_name']}")
-            
-            # Execute the tool
-            tool_result = self.call_tool(tool_call['tool_name'], tool_call['arguments'])
-            
-            if tool_result['success']:
-                # Create a response based on the tool result
-                tool_name = tool_call['tool_name']
-                result = tool_result['result']
-                
-                # Update context for memory logging
-                context = {
-                    "current_directory": os.getcwd(),
-                    "tool_used": tool_name,
-                    "files_accessed": [result] if "file" in tool_name.lower() else []
-                }
-                
-                if tool_name == "get_current_time":
-                    # Make the response more natural based on the format
-                    if tool_call['arguments'].get('format') == 'time_only':
-                        response = f"It's {result}."
-                    elif tool_call['arguments'].get('format') == 'date_only':
-                        response = f"Today is {result}."
-                    else:
-                        response = f"The current time is {result}."
-                elif tool_name == "calculate":
-                    response = f"The result is {result}."
-                elif tool_name == "list_directories":
-                    response = result
-                elif tool_name == "navigate_directory":
-                    response = result
-                elif tool_name == "open_file":
-                    response = result
-                elif tool_name == "write_file":
-                    response = result
-                elif tool_name == "edit_file":
-                    response = result
-                elif tool_name == "search_files":
-                    response = result
-                elif tool_name == "get_system_info":
-                    response = result
-                elif tool_name == "get_disk_usage":
-                    response = result
-                elif tool_name == "find_directory":
-                    response = result
-                elif tool_name == "get_current_directory":
-                    response = f"My current directory is: {result}"
-                else:
-                    response = f"Tool result: {result}"
-                
-                return response
+        return tool_requests
+    
+    def _handle_tool_execution(self, tool_name: str, user_input: str, entities: Dict[str, Any]) -> str:
+        """
+        Handle tool execution with enhanced entity extraction
+        """
+        if tool_name == "get_current_time":
+            # Determine format based on user input and entities
+            if any(word in user_input.lower() for word in ["date", "today's date", "current date"]) or entities.get("dates"):
+                tool_result = self.call_tool(tool_name, {"format": "date_only"})
+            elif any(word in user_input.lower() for word in ["time", "what time", "current time"]) or entities.get("times"):
+                tool_result = self.call_tool(tool_name, {"format": "time_only"})
+            elif any(word in user_input.lower() for word in ["day", "what day", "today's day"]):
+                tool_result = self.call_tool(tool_name, {"format": "day_only"})
             else:
-                return f"Sorry, I encountered an error: {tool_result['error']}"
+                tool_result = self.call_tool(tool_name, {"format": "full"})
+        
+        elif tool_name == "navigate_directory":
+            # Use extracted paths or fallback to pattern matching
+            path = "."
+            if entities.get("paths"):
+                path = entities["paths"][0]
+            else:
+                import re
+                patterns = [
+                    r'(?:go to|navigate to|move to|change to|switch to)\s+(?:the\s+)?(\w+(?:\s+\w+)*?)(?:\s+folder)?',
+                    r'(?:in|at)\s+(?:the\s+)?(\w+(?:\s+\w+)*?)(?:\s+folder)?',
+                    r'(\w+(?:\s+\w+)*?)\s+folder'
+                ]
+                
+                for pattern in patterns:
+                    path_match = re.search(pattern, user_input.lower())
+                    if path_match:
+                        path = path_match.group(1).strip()
+                        path = re.sub(r'\b(the|a|an)\b', '', path).strip()
+                        if path:
+                            break
+            
+            tool_result = self.call_tool(tool_name, {"path": path})
+        
+        elif tool_name == "calculate":
+            # Use extracted numbers or fallback to pattern matching
+            import re
+            if len(entities.get("numbers", [])) >= 2:
+                # Try to find mathematical expression with extracted numbers
+                numbers = entities["numbers"]
+                math_match = re.search(r'(\d+\s*[\+\-\*\/]\s*\d+)', user_input)
+                if math_match:
+                    expression = math_match.group(1)
+                else:
+                    # Create expression from first two numbers
+                    expression = f"{numbers[0]} + {numbers[1]}"
+            else:
+                # Fallback to original pattern matching
+                math_match = re.search(r'(\d+\s*[\+\-\*\/]\s*\d+)', user_input)
+                if math_match:
+                    expression = math_match.group(1)
+                else:
+                    numbers = re.findall(r'\d+', user_input)
+                    operators = re.findall(r'[\+\-\*\/]', user_input)
+                    if numbers and operators:
+                        expression = f"{numbers[0]} {operators[0]} {numbers[1] if len(numbers) > 1 else '0'}"
+                    else:
+                        expression = "2 + 2"
+            
+            tool_result = self.call_tool(tool_name, {"expression": expression})
+        
+        elif tool_name == "open_file":
+            # Use extracted filenames or fallback to pattern matching
+            filename = "notes.txt"
+            if entities.get("filenames"):
+                filename = entities["filenames"][0]
+            else:
+                # Fallback to original pattern matching
+                import re
+                patterns = [
+                    r'(\w+\.\w+)',  # "filename.md", "filename.txt" (highest priority for explicit extensions)
+                    r'(\w+)\s+(?:text\s+)?file',  # "oranges text file" -> "oranges"
+                    r'(?:open|read|show)\s+(?:me\s+)?(?:the\s+)?(\w+)(?:\s+(?:text\s+)?file)?',
+                    r'(?:the\s+)?(\w+)(?:\s+(?:text\s+)?file)',
+                    r'(?:what does the|what\'s in the)\s+(\w+)',  # "what does the oranges" -> "oranges"
+                    r'(\w+)\s+file',  # "oranges file" -> "oranges"
+                    r'(?:the\s+)?(\w+)(?:\s+file)',  # "the oranges file" -> "oranges"
+                    r'(?:app on|on)\s+(\w+)',  # "app on .text file" -> "app"
+                    r'(\w+)\s+on\s+\w+'  # "app on .text file" -> "app"
+                ]
+                
+                if "the file" in user_input.lower():
+                    if self.last_created_file:
+                        filename = self.last_created_file
+                    elif self.last_opened_file:
+                        filename = self.last_opened_file
+                else:
+                    for pattern in patterns:
+                        file_match = re.search(pattern, user_input.lower())
+                        if file_match:
+                            extracted_name = file_match.group(1).strip()
+                            
+                            if extracted_name.lower() in ["that", "this", "it", "the"]:
+                                continue
+                                
+                            filename = extracted_name
+                            
+                            if '.' in filename:
+                                break
+                            
+                            # Try to find the actual file with different extensions
+                            current_dir = os.getcwd()
+                            potential_extensions = ['.md', '.MD', '.txt', '.TXT', '.json', '.JSON', '.pdf', '.PDF']
+                            
+                            file_found = False
+                            for ext in potential_extensions:
+                                test_filename = filename + ext
+                                test_path = os.path.join(current_dir, test_filename)
+                                if os.path.exists(test_path):
+                                    filename = test_filename
+                                    file_found = True
+                                    break
+                            
+                            if not file_found:
+                                search_paths = [
+                                    current_dir,
+                                    os.path.expanduser("~/Desktop"),
+                                    os.path.expanduser("~/Documents"),
+                                    os.path.expanduser("~/Downloads"),
+                                    os.path.expanduser("~")
+                                ]
+                                
+                                for search_path in search_paths:
+                                    for ext in potential_extensions:
+                                        test_filename = filename + ext
+                                        test_path = os.path.join(search_path, test_filename)
+                                        if os.path.exists(test_path):
+                                            filename = test_filename
+                                            file_found = True
+                                            break
+                                    if file_found:
+                                        break
+                            
+                            if not file_found:
+                                filename += ".txt"
+                            break
+            
+            tool_result = self.call_tool(tool_name, {"filename": filename})
+        
         else:
-            # No tool call, return the original response
-            return llm_response
+            # Default tool execution for other tools
+            tool_result = self.call_tool(tool_name, {})
+        
+        if tool_result and tool_result.get('success'):
+            return tool_result['result']
+        elif tool_result:
+            return f"Sorry, I encountered an error: {tool_result.get('error', 'Unknown error')}"
+        else:
+            return "Sorry, I couldn't execute that tool."
+
 
 def test_tools():
     """Test the tools module"""

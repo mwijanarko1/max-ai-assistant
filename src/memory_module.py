@@ -126,6 +126,9 @@ Context: {context_str}
             print("ℹ️  No current session to end")
             return
         
+        # Ensure we have the latest interaction count
+        print(f"📊 Finalizing session with {self.interaction_count} interactions...")
+        
         if add_summary:
             self._add_session_summary()
         

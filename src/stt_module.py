@@ -108,6 +108,12 @@ class STTModule:
         print("Starting audio capture...")
         print("Listening continuously... (Press Ctrl+C to stop)")
         
+        # Start audio processing in a separate thread
+        self.audio_thread = threading.Thread(target=self._audio_processing_loop, daemon=True)
+        self.audio_thread.start()
+    
+    def _audio_processing_loop(self):
+        """Audio processing loop that runs in a separate thread"""
         try:
             with sd.InputStream(
                 callback=self._audio_callback,

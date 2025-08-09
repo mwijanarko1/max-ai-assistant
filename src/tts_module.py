@@ -53,6 +53,8 @@ class TTSModule:
         if not text.strip():
             return
         
+        print("🎤 TTS: Converting text to speech...")
+        
         if blocking:
             # Speak synchronously
             self._speak_sync(text)
@@ -64,6 +66,7 @@ class TTSModule:
     
     def _speak_sync(self, text: str):
         """Synchronous speech synthesis"""
+        temp_file = None
         try:
             # Set speaking flag
             self.is_speaking = True
@@ -73,20 +76,15 @@ class TTSModule:
                 self.stt_module.pause_listening()
             
             # Create TTS object
+            print("🌐 TTS: Converting text to speech...")
             tts = gTTS(text=text, lang=self.voice_lang, slow=self.voice_slow)
             
-            # Generate temporary file
-            temp_file = os.path.join(self.temp_dir, f"speech_{int(time.time())}.mp3")
+            # Generate temporary file with unique name
+            temp_file = os.path.join(self.temp_dir, f"speech_{int(time.time() * 1000)}.mp3")
             tts.save(temp_file)
             
             # Play the audio with process tracking for interruption
             self._play_audio_with_interruption(temp_file)
-            
-            # Clean up
-            try:
-                os.remove(temp_file)
-            except:
-                pass
             
             # Resume STT listening after speech
             if self.stt_module:
@@ -94,10 +92,16 @@ class TTSModule:
                 
         except Exception as e:
             print(f"❌ TTS error: {e}")
+        finally:
+            # Always clean up the temporary file
+            if temp_file and os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except:
+                    pass
             # Make sure to resume STT even if there's an error
             if self.stt_module:
                 self.stt_module.resume_listening()
-        finally:
             # Always reset speaking flag
             self.is_speaking = False
     
@@ -113,6 +117,7 @@ class TTSModule:
                 cmd = ["start", "/min", "cmd", "/c", f'"{audio_file}"']
             
             # Start the audio process
+            print("🔊 TTS: Playing audio...")
             self.current_speech_process = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
@@ -144,7 +149,7 @@ class TTSModule:
         """Stop current speech"""
         if self.is_speaking:
             self.is_speaking = False
-            print("🛑 Speech stopped by user")
+            print("🛑 SPEECH STOPPED!")
             
             # Kill the current speech process if it exists
             if self.current_speech_process and self.current_speech_process.poll() is None:
@@ -163,7 +168,7 @@ class TTSModule:
     def interrupt_speech(self):
         """Interrupt current speech"""
         if self.is_speaking:
-            print("🚨 Speech interrupted!")
+            print("🚨 SPEECH INTERRUPTED!")
             self.stop_speaking()
             
             # Call interruption callback if set
@@ -190,12 +195,40 @@ class TTSModule:
             if len(parts) > 1:
                 clean_response = parts[1].strip()
         
+        # Remove emojis from the response
+        clean_response = self._remove_emojis(clean_response)
+        
         print(f"🗣️  Max speaking: {clean_response}")
         self.speak(clean_response, blocking=False)
+    
+    def _remove_emojis(self, text: str) -> str:
+        """Remove emojis from text"""
+        import re
+        # Remove emoji characters (Unicode emoji ranges)
+        emoji_pattern = re.compile(
+            "["
+            "\U0001F600-\U0001F64F"  # emoticons
+            "\U0001F300-\U0001F5FF"  # symbols & pictographs
+            "\U0001F680-\U0001F6FF"  # transport & map symbols
+            "\U0001F1E0-\U0001F1FF"  # flags (iOS)
+            "\U00002702-\U000027B0"  # dingbats
+            "\U000024C2-\U0001F251"  # enclosed characters
+            "]+", flags=re.UNICODE
+        )
+        return emoji_pattern.sub('', text).strip()
     
     def is_available(self) -> bool:
         """Check if TTS is available"""
         return True  # gTTS is always available if installed
+    
+    def cleanup(self):
+        """Clean up temporary files and directories"""
+        try:
+            import shutil
+            if os.path.exists(self.temp_dir):
+                shutil.rmtree(self.temp_dir)
+        except:
+            pass
     
     def test_voice(self):
         """Test the TTS system"""

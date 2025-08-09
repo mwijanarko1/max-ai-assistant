@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
 """
 Simple Interrupt Module for Max
-Uses a simpler approach for interruption that works on all platforms
+Uses a more robust approach for interruption that works with audio input systems
 """
 
 import threading
 import time
 import sys
 import os
+import select
 from typing import Optional, Callable
+
+# Import msvcrt only on Windows
+if os.name == 'nt':
+    import msvcrt
 
 class SimpleInterrupt:
     def __init__(self):
@@ -21,6 +26,23 @@ class SimpleInterrupt:
         """Set callback for interruption events"""
         self.interruption_callback = callback
     
+    def _check_input_available(self):
+        """Check if input is available without blocking"""
+        if os.name == 'nt':  # Windows
+            return msvcrt.kbhit()
+        else:  # Unix/Linux/macOS
+            return select.select([sys.stdin], [], [], 0)[0]
+    
+    def _get_input(self):
+        """Get input without blocking"""
+        if os.name == 'nt':  # Windows
+            if msvcrt.kbhit():
+                return msvcrt.getch()
+        else:  # Unix/Linux/macOS
+            if select.select([sys.stdin], [], [], 0)[0]:
+                return sys.stdin.readline()
+        return None
+    
     def start_listening(self):
         """Start listening for interruption using Enter key"""
         self.is_listening = True
@@ -29,10 +51,16 @@ class SimpleInterrupt:
         def listen_for_enter():
             while self.is_listening:
                 try:
-                    input()  # Wait for Enter key
-                    if self.is_listening and self.interruption_callback:
-                        print("🚨 Enter pressed! Interrupting Max...")
-                        self.interruption_callback()
+                    # Use non-blocking input check
+                    if self._check_input_available():
+                        input_data = self._get_input()
+                        if input_data and (input_data.strip() == '' or input_data.strip() == '\n'):
+                            if self.is_listening and self.interruption_callback:
+                                print("🚨 Enter pressed! Interrupting Max...")
+                                self.interruption_callback()
+                    else:
+                        # Small sleep to prevent high CPU usage
+                        time.sleep(0.1)
                 except KeyboardInterrupt:
                     break
                 except EOFError:
