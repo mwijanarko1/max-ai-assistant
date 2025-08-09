@@ -2,33 +2,21 @@
 
 A complete voice-activated AI assistant that listens, thinks, and responds with natural speech. Built with Whisper for speech recognition, Llama 3 8B for language processing, and Google TTS for speech synthesis.
 
-## 🚀 Quick Start
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![Platform: macOS](https://img.shields.io/badge/platform-macOS-lightgrey.svg)](https://www.apple.com/macos/)
 
-### 1. Install Dependencies
+## 📋 Table of Contents
 
-First, install system dependencies:
-```bash
-brew install portaudio
-```
-
-Then install Python packages:
-```bash
-pip3 install --upgrade pip setuptools wheel
-pip3 install -r requirements.txt
-```
-
-### 2. Start Max AI Assistant
-```bash
-python3 run_max.py
-```
-
-Or run directly from the source:
-```bash
-cd src
-python3 max_ai_assistant.py
-```
-
-Speak naturally and Max will respond with voice! Say "go to sleep" to exit gracefully.
+- [Features](#-features)
+- [Prerequisites](#-prerequisites)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Usage](#-usage)
+- [Architecture](#-architecture)
+- [Troubleshooting](#-troubleshooting)
+- [Contributing](#-contributing)
+- [License](#-license)
 
 ## ✨ Features
 
@@ -65,6 +53,151 @@ Speak naturally and Max will respond with voice! Say "go to sleep" to exit grace
 - **Context-Aware References** - Understands "it", "that", and "the file" references
 - **Session Archiving** - Automatically archives sessions for future reference
 
+## 🔧 Prerequisites
+
+Before you begin, ensure you have the following installed:
+
+### System Requirements
+- **Operating System**: macOS (tested on macOS 13+)
+- **RAM**: 8GB minimum, 16GB recommended
+- **Storage**: 2GB free space for models and dependencies
+- **Python**: 3.9 or higher
+
+### Required Software
+1. **Python 3.9+** - [Download here](https://www.python.org/downloads/)
+2. **Homebrew** - [Install here](https://brew.sh/)
+3. **Ollama** - [Install here](https://ollama.ai/)
+
+### Hardware Requirements
+- **Microphone**: Built-in or external microphone
+- **Speakers**: Built-in or external speakers/headphones
+- **Internet**: Required for initial model downloads
+
+## 🚀 Installation
+
+### Step 1: Clone the Repository
+
+```bash
+# Clone the repository
+git clone https://github.com/mwijanarko1/max-ai-assistant.git
+
+# Navigate to the project directory
+cd max-ai-assistant
+```
+
+### Step 2: Install System Dependencies
+
+#### macOS
+```bash
+# Install Homebrew if you haven't already
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+
+# Install PortAudio
+brew install portaudio
+```
+
+#### Linux (Ubuntu/Debian)
+```bash
+# Install system dependencies
+sudo apt-get update
+sudo apt-get install -y portaudio19-dev python3-pip python3-venv
+```
+
+#### Windows
+```bash
+# Install Visual Studio Build Tools
+# Download from: https://visualstudio.microsoft.com/downloads/
+# Then install PortAudio manually or use conda
+conda install -c conda-forge portaudio
+```
+
+### Step 3: Set Up Python Environment
+
+```bash
+# Create a virtual environment (recommended)
+python3 -m venv venv
+
+# Activate the virtual environment
+# On macOS/Linux:
+source venv/bin/activate
+# On Windows:
+# venv\Scripts\activate
+
+# Upgrade pip and install dependencies
+pip install --upgrade pip setuptools wheel
+pip install -r requirements.txt
+```
+
+### Step 4: Install Ollama and Models
+
+```bash
+# Install Ollama (if not already installed)
+curl -fsSL https://ollama.ai/install.sh | sh
+
+# Start Ollama service
+ollama serve
+
+# Download Llama 3 8B model (this may take a while)
+ollama pull llama3:8b
+```
+
+### Step 5: Verify Installation
+
+```bash
+# Test if all dependencies are installed correctly
+python3 -c "import whisper, torch, sounddevice, gtts, playsound; print('✅ All dependencies installed successfully!')"
+```
+
+## 🎯 Quick Start
+
+### 1. Start Ollama (if not running)
+```bash
+# In a separate terminal window
+ollama serve
+```
+
+### 2. Run Max AI Assistant
+```bash
+# Make sure your virtual environment is activated
+source venv/bin/activate  # On macOS/Linux
+# venv\Scripts\activate   # On Windows
+
+# Start Max AI Assistant
+python3 run_max.py
+```
+
+### 3. Start Speaking!
+- **Wake up**: Say "Hey Max" or any greeting
+- **Test commands**: Try "What time is it?" or "List the files here"
+- **Exit**: Say "go to sleep" or "goodbye"
+
+## 🎮 Usage
+
+### Basic Commands
+- **"Hello, how are you?"** - General conversation
+- **"What time is it?"** - Get current time
+- **"What's the day today?"** - Get current day
+- **"Calculate 15 times 23"** - Mathematical calculations
+
+### File Operations
+- **"Open the README file"** - Open and read files
+- **"List the files in this directory"** - List directory contents
+- **"Navigate to the desktop folder"** - Change directories
+- **"Search for Python files"** - Search for files
+- **"Summarize the README file"** - Generate file summaries
+- **"Create a new text file"** - Create new files
+
+### System Commands
+- **"What's my current directory?"** - Get current working directory
+- **"Show system information"** - Get system details
+- **"Check disk usage"** - Check disk space
+- **"Find the documents folder"** - Find directories
+
+### Voice Control
+- **"Stop" or "interrupt"** - Stop Max's speech
+- **"Go to sleep" or "goodbye"** - Exit gracefully
+- **Press ENTER** - Interrupt Max while speaking
+
 ## 🏗️ Architecture
 
 ```
@@ -82,16 +215,6 @@ User Speech → Whisper STT → Llama 3 8B LLM → Tool Detection → Tool Execu
 - **`tools_module.py`** - File system and utility tools
 - **`memory_module.py`** - Conversation memory and context
 - **`simple_interrupt.py`** - Keyboard interruption handling
-
-## 🎯 How It Works
-
-1. **Listen** - Max continuously listens for your voice
-2. **Transcribe** - Whisper converts speech to text in real-time
-3. **Process** - Llama 3 8B generates intelligent responses with memory context
-4. **Detect Intent** - Two-tier system identifies user intent and extracts entities
-5. **Execute Tools** - Can perform file operations, calculations, and system tasks
-6. **Speak** - Google TTS converts responses to natural speech
-7. **Pause** - Automatically pauses listening while speaking to prevent feedback
 
 ## 🛠️ Available Tools
 
@@ -124,37 +247,10 @@ User Speech → Whisper STT → Llama 3 8B LLM → Tool Detection → Tool Execu
 - **Intent Detection**: 95%+ accuracy with two-tier system
 - **File Detection**: 95%+ accuracy with intelligent extension detection
 
-## 🎮 Usage Examples
-
-### Basic Commands
-- "Hello, how are you?"
-- "What time is it?"
-- "What's the day today?"
-- "Calculate 15 times 23"
-
-### File Operations
-- "Open the PRD file"
-- "List the files in this directory"
-- "Navigate to the desktop folder"
-- "Search for Python files"
-- "Summarize the README file"
-- "Create a new text file"
-
-### System Commands
-- "What's my current directory?"
-- "Show system information"
-- "Check disk usage"
-- "Find the documents folder"
-
-### Voice Control
-- "Stop" or "interrupt" - Stop Max's speech
-- "Go to sleep" or "goodbye" - Exit gracefully
-- Press ENTER - Interrupt Max while speaking
-
 ## 🏗️ Project Structure
 
 ```
-Jarvis/
+max-ai-assistant/
 ├── src/
 │   ├── max_ai_assistant.py     # Main AI assistant
 │   ├── stt_module.py           # Speech-to-text module
@@ -163,62 +259,128 @@ Jarvis/
 │   ├── tools_module.py         # File system and utility tools
 │   ├── memory_module.py        # Conversation memory and context
 │   └── simple_interrupt.py     # Keyboard interruption handling
-├── memory/                     # Session memory and logs
-├── docs/                       # Documentation
+├── memory/                     # Session memory and logs (ignored by git)
+├── docs/                       # Documentation (ignored by git)
 │   ├── prd.md                 # Product requirements
 │   └── implementation_checklist.md
 ├── requirements.txt            # Python dependencies
 ├── run_max.py                 # Main entry point
+├── LICENSE                    # MIT License
 └── README.md                  # This file
 ```
 
 ## 🛠️ Troubleshooting
 
-### Audio Issues
-- Make sure your microphone is working
-- Check system audio permissions
-- Try different audio devices if available
+### Common Issues
 
-### Performance Issues
-- The first run will download the Whisper model (~39MB)
-- Subsequent runs will be faster
-- Close other audio applications if needed
-
-### Dependencies Issues
-
-If you encounter installation problems:
-
+#### Audio Issues
 ```bash
-# Update pip and setuptools first
-pip3 install --upgrade pip setuptools wheel
+# Check if microphone is working
+python3 -c "import sounddevice; print(sounddevice.query_devices())"
 
-# Install system dependencies
-brew install portaudio
-
-# Install packages individually if needed
-pip3 install openai-whisper
-pip3 install sounddevice
-pip3 install torch
-pip3 install numpy scipy
-pip3 install gtts playsound
+# Test audio recording
+python3 -c "import sounddevice as sd; print('Recording for 3 seconds...'); sd.rec(3*44100, samplerate=44100, channels=1); sd.wait(); print('Recording complete!')"
 ```
 
-## 🔮 Next Steps
+#### Ollama Issues
+```bash
+# Check if Ollama is running
+curl http://localhost:11434/api/tags
 
-This core pipeline is ready for integration with:
-- Calendar integration
-- Task management
-- Local search capabilities
-- Internet search (RSS feeds)
-- Email management
-- Smart home control
+# Restart Ollama
+pkill ollama
+ollama serve
+```
 
-## 📝 Notes
+#### Python Dependencies
+```bash
+# Reinstall dependencies
+pip uninstall -r requirements.txt -y
+pip install -r requirements.txt
 
-- All processing is done offline for privacy
-- Single-user system
-- No cloud dependencies
-- Built for macOS with 16GB RAM
-- Focus on functional implementation first
-- Comprehensive error handling and user feedback
-- Session-based memory for context awareness
+# Check Python version
+python3 --version  # Should be 3.9+
+```
+
+#### Memory Issues
+```bash
+# Check available RAM
+free -h  # Linux
+vm_stat   # macOS
+```
+
+### Performance Optimization
+
+1. **Close other applications** - Free up RAM for Max
+2. **Use SSD storage** - Faster model loading
+3. **Update drivers** - Ensure latest audio drivers
+4. **Check background processes** - Close unnecessary services
+
+## 🤝 Contributing
+
+We welcome contributions! Please feel free to submit a Pull Request. For major changes, please open an issue first to discuss what you would like to change.
+
+### Development Setup
+
+1. **Fork the repository**
+2. **Create a feature branch**: `git checkout -b feature/amazing-feature`
+3. **Make your changes**
+4. **Test thoroughly**
+5. **Commit your changes**: `git commit -m 'Add amazing feature'`
+6. **Push to the branch**: `git push origin feature/amazing-feature`
+7. **Open a Pull Request**
+
+### Code Style
+
+- Follow PEP 8 for Python code
+- Add comments for complex logic
+- Include docstrings for functions
+- Test your changes before submitting
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+```
+MIT License
+
+Copyright (c) 2025 Mikhail Wijanarko
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## 🙏 Acknowledgments
+
+- **OpenAI Whisper** - Speech recognition
+- **Meta Llama 3** - Language model
+- **Google TTS** - Text-to-speech synthesis
+- **Ollama** - Local LLM serving
+- **PortAudio** - Audio processing
+
+## 📞 Support
+
+If you encounter any issues or have questions:
+
+1. **Check the [Troubleshooting](#-troubleshooting) section**
+2. **Search existing [Issues](https://github.com/mwijanarko1/max-ai-assistant/issues)**
+3. **Create a new issue** with detailed information about your problem
+
+---
+
+**Made with ❤️ by [Mikhail Wijanarko](https://github.com/mwijanarko1)**
